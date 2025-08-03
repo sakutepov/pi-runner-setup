@@ -1,0 +1,48 @@
+# Environment configuration (contains secrets)
+.env
+
+# Repository list (user-specific)
+repos.txt
+
+# GitHub Actions Runner files
+**/*.tar.gz
+**/*.zip
+.runner
+.credentials
+
+# GitHub Actions Runner artifacts (extracted from archives)
+_diag/
+bin/
+externals/
+*.dll
+*.exe
+*.pdb
+config.sh
+env.sh
+run.sh
+run-helper.sh.template
+run-helper.cmd.template
+safe_sleep.sh
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Backup files
+*.bak
+*~

@@ -1,0 +1,16 @@
+[Unit]
+Description=GitHub Actions Runner for %i
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=__RUNNER_DIR__/run.sh
+WorkingDirectory=__RUNNER_DIR__
+Restart=always
+RestartSec=5s
+User=__USER__
+Environment="DOTNET_CLI_TELEMETRY_OPTOUT=1"
+Environment="GITHUB_ACTIONS_RUNNER_DEBUG=0"
+
+[Install]
+WantedBy=multi-user.target
