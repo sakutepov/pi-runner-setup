@@ -1,176 +1,176 @@
 # Raspberry Pi GitHub Actions Runner Setup
 
-This project automates the installation and management of multiple GitHub self-hosted runners on Linux systems, with special optimizations for Raspberry Pi.
+Install and manage one repository-level GitHub Actions runner per repository on
+Linux with systemd. Supports 64-bit Raspberry Pi OS (ARM64) and x86_64 Linux.
 
-## Features
+The next project release is **v0.1.0**. The bootstrap version of the GitHub Runner
+application is configured separately in `.env`; existing runners keep GitHub's
+default automatic updates enabled.
 
-- **Multi-repository support**: One runner per GitHub repository
-- **Automated setup**: Token retrieval and runner installation
-- **Easy management**: Add/remove repositories with simple config files
-- **Robust cleanup**: Complete removal including GitHub API deregistration
-- **Systemd integration**: Persistent runners with automatic restart
-- **Smart detection**: Prevents duplicate installations
-- **Cross-platform**: Works on ARM64 (Raspberry Pi) and AMD64 systems
+## Requirements
 
-## Project Structure
+- Linux with systemd 240 or later and a supported 64-bit OS; on Raspberry Pi, use 64-bit
+  Raspberry Pi OS. This project does not manage runners on macOS or Windows.
+- Bash, `curl`, `jq`, `tar`, `sudo`, `systemctl`, and `sha256sum` or `shasum`.
+- A non-root account with permission to manage system services through `sudo`.
+- Outbound HTTPS access to GitHub and the domains used by Actions.
+- Administration access to every repository in `repos.txt`.
 
-```
-pi-runner-setup/
-├── .env.example              # Environment configuration template
-├── repos.txt.example         # Repository list template
-├── install_runner.sh         # Individual runner installation script
-├── register_all.sh           # Register all runners from repos.txt
-├── unregister_all.sh         # Complete cleanup of all runners
-├── sync.sh                       # Sync runners with repository list
-├── utils.sh                      # Utility functions for GitHub API
-├── github-runner.service.template # Systemd service template
-├── README.md
-└── .gitignore
-```
-
-## Quick Start
-
-### 1. Clone and Setup
+On Debian/Ubuntu, install the command-line dependencies with:
 
 ```bash
-git clone <repository-url>
+sudo apt-get update
+sudo apt-get install curl jq tar
+```
+
+The runner also needs the native libraries listed in [GitHub's supported runner
+requirements](https://docs.github.com/en/actions/reference/runners/self-hosted-runners).
+If configuration reports a missing library, the downloaded package provides
+`bin/installdependencies.sh`; run it with `sudo` in the affected runner directory,
+then retry registration.
+
+## Quick start
+
+Use this only for repositories and workflows you trust. Jobs run as the Linux
+account that performs installation; see the security section before setup.
+
+```bash
+git clone https://github.com/sakutepov/pi-runner-setup.git
 cd pi-runner-setup
-chmod +x *.sh
-```
-
-### 2. Configure Environment
-
-```bash
 cp .env.example .env
+chmod 600 .env
 cp repos.txt.example repos.txt
 ```
 
-Edit `.env` with your settings:
-```bash
-# GitHub Personal Access Token with repo and admin:org permissions
-GITHUB_PAT=ghp_your_personal_access_token_here
+Edit `.env` and replace the example PAT. A fine-grained PAT can be limited to the
+selected repositories with **Administration: read and write** permission. For
+classic PATs, GitHub documents the `repo` scope for these repository endpoints.
+An `admin:org` scope is not needed merely because a repository belongs to an
+organization; this project uses repository-level runners, not organization-level
+runners. Organization policy may require separate approval of the token.
+See the [GitHub runner API authentication requirements](https://docs.github.com/en/rest/actions/self-hosted-runners#create-a-registration-token-for-a-repository).
 
-# Repository owner (your GitHub username or organization)  
-REPO_OWNER=your-github-username
+For Raspberry Pi, keep `ARCH=arm64`. For x86_64 Linux, set `ARCH=x64`;
+`amd64`/`x86_64` aliases are accepted. `aarch64` maps to `arm64`.
 
-# GitHub Actions Runner version
-RUNNER_VERSION=2.327.1
+The default runner version is `2.337.0`; its official ARM64 and x64 SHA-256
+checksums are built in. To use another version, set both `RUNNER_VERSION` and
+`RUNNER_SHA256` using the checksum from the [official runner release](https://github.com/actions/runner/releases).
+The archive is verified before extraction. GitHub progressively rolls out runner
+versions, so check your repository's runner download instructions when selecting
+a different version.
 
-# System architecture (arm64 for Raspberry Pi 4/5, amd64 for x86_64)
-ARCH=arm64
+Edit `repos.txt` with one `owner/repo` per line:
 
-# Custom labels for the runners (comma-separated)
-LABELS="self-hosted,raspberry-pi"
-
-# Language for runner output
-LANG=en_US.UTF-8
+```text
+my-account/first-repo
+my-organization/project_with_underscores
 ```
 
-### 3. Add Repositories
-
-Edit `repos.txt` with your repositories (one per line):
-```
-your-username/first-repo
-your-username/second-repo
-your-organization/project-name
-```
-
-### 4. Install Runners
+Blank lines and full-line comments are ignored. CRLF files, surrounding whitespace,
+duplicates, and a final line without a newline are supported. Malformed entries
+stop the operation before any runner is changed.
 
 ```bash
 ./register_all.sh
 ```
 
-## Usage
+Scripts resolve configuration relative to their own location, so they can also
+be invoked by absolute path from another directory.
 
-### Register All Runners
+## Managing runners
+
 ```bash
+# Install missing runners and start configured runners, including stopped ones.
 ./register_all.sh
-```
 
-### Check Runner Status
-```bash
-systemctl status github-runner@*
-```
-
-### Remove All Runners
-```bash
-./unregister_all.sh
-```
-
-### Sync Runners (remove unused, add new)
-```bash
+# Match installed runners to repos.txt: remove unused runners, then register.
 ./sync.sh
+
+# Remove all managed runners owned by this account, regardless of repos.txt.
+./unregister_all.sh
+
+# Inspect a particular runner. Replace owner_repo with its actual name.
+systemctl status github-runner@owner_repo.service
+journalctl -u github-runner@owner_repo.service -f
 ```
 
-## Configuration Details
+**An explicitly empty or comments-only `repos.txt` removes all managed runners
+when running `sync.sh`.** A missing, unreadable, or malformed list fails before
+removal. Review the list before syncing; a dry-run command is planned for a later
+release.
 
-### GitHub Personal Access Token
+Run one management command at a time; concurrent management operations are not
+supported. Runner directories live at `$HOME/github-runners/owner_repo/`.
+Service units are named `github-runner@owner_repo.service` and use GitHub's
+`runsvc.sh` entry point.
+The unit uses `Type=exec` and startup checks confirm it remains active; this
+does not prove the runner has connected to GitHub or accepted a job.
+New installations store the exact repository in `.pi-runner-repo`. Existing
+installations from the original scripts can be recognized from `.runner`
+metadata and their directory name.
 
-Your GitHub PAT needs the following permissions:
-- `repo` (Full control of private repositories)
-- `admin:org` (Full control of orgs and teams) - if using organization repositories
+Cleanup inventories managed directories rather than relying on running service
+status, so stopped runners and repositories removed from the desired list are
+included. Unmanaged directories and another user's services are left untouched;
+inconsistent managed state causes an error requiring inspection.
 
-### Supported Architectures
-
-- `arm64` - Raspberry Pi 4/5, ARM64 servers
-- `amd64` - Standard x86_64 systems
-
-### Runner Storage
-
-- **Location**: `$HOME/github-runners/<repo-name>/`
-- **Structure**: Each repository gets its own isolated directory
-
-### Systemd Services
-
-Each runner gets its own systemd service:
-- Service name: `github-runner@<repo-name>.service`
-- Template: `github-runner.service.template` (automatically customized per user)
-- Auto-start on boot: Yes
-- Auto-restart on failure: Yes
-- User-specific: Runs under the user who installed it
+Registration and removal use separate short-lived GitHub API tokens. HTTP,
+JSON, checksum, configuration, and service errors result in a nonzero exit code.
+A service is installed only after successful runner configuration. If stopping
+or deregistering a runner fails, its local state is preserved for retry. Cleanup
+is not a filesystem transaction: a later disable or deletion error can leave a
+partially cleaned, already deregistered runner; the script reports the failure.
 
 ## Troubleshooting
 
-### Check Runner Logs
+- **Invalid token / permission denied:** check PAT expiry, selected repositories,
+  Administration permission, and any organization approval requirements.
+- **Download or checksum failure:** check the runner version, architecture, and
+  published checksum. Retry after fixing the cause; do not disable verification.
+- **Configuration failure:** inspect the runner output and `_diag/` logs. The
+  partial directory is kept so you can diagnose missing native libraries.
+- **Removal failure:** repair the token, connectivity, or service error and rerun
+  cleanup. Avoid manually deleting a configured runner's credentials.
+- **Foreign or inconsistent service:** inspect `systemctl cat` and `.runner`
+  metadata. The scripts deliberately refuse to overwrite or remove that service.
+
+## Security
+
+Self-hosted runners execute workflow code with the permissions and filesystem
+access of their Linux user. Separate runner directories **do not isolate jobs**
+from each other, `.env`, personal files, or the local network. This setup is
+intended for trusted workflows. Do not execute untrusted fork pull requests on
+these persistent runners.
+
+Use a dedicated machine/account with no personal SSH keys or unrelated secrets;
+keep PAT permissions and lifetime limited. `.env` is a Bash script sourced during
+management, so only trusted users should edit it. `chmod 600` protects it from
+other accounts, not from jobs running as its owner. A PAT used for management
+must not be exposed to untrusted jobs. Avoid giving the runtime account
+passwordless unrestricted `sudo` or Docker socket access.
+
+For untrusted workloads, use GitHub-hosted runners or properly isolated disposable
+environments. This project does not implement that isolation. GitHub documents
+these risks in its [self-hosted runner security guidance](https://docs.github.com/en/actions/reference/security/secure-use#hardening-for-self-hosted-runners).
+The automated report in [issue #1](https://github.com/sakutepov/pi-runner-setup/issues/1)
+is not evidence of an exploitable workflow in this repository, which has no
+self-hosted CI workflow. The project's own checks run on GitHub-hosted Ubuntu.
+
+## Development and releases
+
 ```bash
-journalctl -u github-runner@<repo-name> -f
+for script in *.sh; do bash -n "$script"; done
+shellcheck *.sh
+python3 -m unittest discover -s tests -v
 ```
 
-### Manual Runner Operations
-```bash
-# Stop specific runner
-sudo systemctl stop github-runner@<repo-name>
+Tests use temporary homes, fake tokens, and command stubs; they never register
+real runners or manage the host's services. CI runs syntax checks, ShellCheck,
+and these regressions on GitHub-hosted Ubuntu.
 
-# Start specific runner  
-sudo systemctl start github-runner@<repo-name>
+See [CHANGELOG.md](CHANGELOG.md) and the [v0.1.0 release draft and validation
+checklist](docs/releases/v0.1.0.md). A real Raspberry Pi and end-to-end GitHub
+registration need separate validation; mock tests alone do not verify them.
 
-# Check runner directory
-ls -la ~/github-runners/<repo-name>/
-```
-
-### Common Issues
-
-1. **"Runner already exists"**: Use `./unregister_all.sh` first
-2. **Permission denied**: Ensure your GitHub PAT has correct permissions
-3. **Download failures**: Check network connectivity and runner version
-4. **Service start failures**: Check systemd logs with `journalctl`
-
-## Security Considerations
-
-- Store your `.env` file securely (it's in `.gitignore`)
-- Use GitHub PAT with minimal required permissions
-- Regularly update runner versions
-- Monitor runner activity in GitHub repository settings
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## License
-
-MIT License - see LICENSE file for details
+MIT License. See [LICENSE](LICENSE).

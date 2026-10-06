@@ -1,52 +1,32 @@
 #!/bin/bash
-source .env
-source utils.sh
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/utils.sh"
+source "$SCRIPT_DIR/lifecycle.sh"
+
+init_config
+require_linux
+require_commands jq systemctl sudo id rm
+
+# Validate the entire desired state before any service or directory is changed.
+# An explicitly empty readable list means remove all managed runners.
+load_repos
+load_installed_runners
 
 echo "Synchronizing runners with repository list..."
-
-# Get desired runners from repos.txt
-desired=$(cat repos.txt | grep -v '^#' | grep -v '^$' | tr '/' '_')
-
-# Get existing systemd services
-existing=$(systemctl list-units --type=service --no-legend | grep 'github-runner@' | awk '{print $1}' | sed 's/github-runner@//;s/\.service//')
-
-# Find runners to remove (exist but not in repos.txt)
-to_remove=$(comm -23 <(echo "$existing" | sort) <(echo "$desired" | sort))
-
-# Remove unused runners
-for svc in $to_remove; do
-  echo "Removing unused runner: $svc"
-  
-  # Stop and disable service
-  sudo systemctl stop github-runner@$svc
-  sudo systemctl disable github-runner@$svc
-  
-  # Remove from GitHub if possible
-  repo=$(echo "$svc" | tr '_' '/')
-  runner_dir="$HOME/github-runners/$svc"
-  
-  if [ -d "$runner_dir" ] && [ -f "$runner_dir/config.sh" ]; then
-    echo "  Disconnecting from GitHub..."
-    cd "$runner_dir"
-    TOKEN=$(get_runner_token "$repo" 2>/dev/null)
-    if [ -n "$TOKEN" ]; then
-      ./config.sh remove --token "$TOKEN" --unattended 2>/dev/null || echo "  Warning: could not disconnect from GitHub"
+for ((i = 0; i < ${#INSTALLED_NAMES[@]}; i++)); do
+  desired=0
+  for ((j = 0; j < ${#REPOSITORIES[@]}; j++)); do
+    if [[ "${INSTALLED_REPOSITORIES[$i]}" == "${REPOSITORIES[$j]}" ]]; then
+      desired=1
+      break
     fi
-    cd - > /dev/null
+  done
+  if [[ "$desired" == 0 ]]; then
+    remove_installed_runner "$i"
   fi
-  
-  # Remove directories and service files
-  sudo rm -f "/etc/systemd/system/github-runner@$svc.service"
-  rm -rf "$HOME/github-runners/$svc" 2>/dev/null || true
-  
-  echo "  Removed runner: $svc"
 done
 
-# Reload systemd
-sudo systemctl daemon-reload
-
-# Register new runners
-echo "Registering new runners..."
-./register_all.sh
-
+echo "Registering desired runners..."
+"$SCRIPT_DIR/register_all.sh"
 echo "Sync complete."

@@ -1,11 +1,15 @@
 [Unit]
 Description=GitHub Actions Runner for %i
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
-Type=simple
-ExecStart=__RUNNER_DIR__/run.sh
-WorkingDirectory=__RUNNER_DIR__
+Type=exec
+ExecStart="__RUNNER_DIR__/runsvc.sh"
+WorkingDirectory="__RUNNER_DIR__"
+KillMode=process
+KillSignal=SIGTERM
+TimeoutStopSec=5min
 Restart=always
 RestartSec=5s
 User=__USER__

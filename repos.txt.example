@@ -1,6 +1,6 @@
-# List your repositories here in owner/repo format
-# One repository per line
-# Lines starting with # are ignored
+# One repository per line in owner/repo format.
+# Blank lines and comments (including indented comments) are ignored.
+# CRLF and a final line without a newline are accepted; duplicates are ignored.
 
 your-username/first-repo
 your-username/second-repo
