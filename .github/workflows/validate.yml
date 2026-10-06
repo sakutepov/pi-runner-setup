@@ -16,7 +16,7 @@ jobs:
       - name: Install validation tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes shellcheck jq
+          sudo apt-get install --yes shellcheck jq systemd
       - name: Check Bash syntax
         run: |
           for script in ./*.sh; do

@@ -56,7 +56,9 @@ def unit_properties(unit):
         for line in unit_file.read_text().splitlines():
             if line.startswith(("User=", "WorkingDirectory=")):
                 key, value = line.split("=", 1)
-                values[key] = value.strip('"')
+                # WorkingDirectory retains quotes literally; unlike ExecStart
+                # it does not remove quotes or decode C-style backslash escapes.
+                values[key] = value.replace("%%", "%") if key == "WorkingDirectory" else value
     return unit, values
 
 

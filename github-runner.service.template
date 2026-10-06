@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=exec
 ExecStart="__RUNNER_DIR__/runsvc.sh"
-WorkingDirectory="__RUNNER_DIR__"
+WorkingDirectory=__RUNNER_WORK_DIR__
 KillMode=process
 KillSignal=SIGTERM
 TimeoutStopSec=5min

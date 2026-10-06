@@ -166,8 +166,9 @@ python3 -m unittest discover -s tests -v
 ```
 
 Tests use temporary homes, fake tokens, and command stubs; they never register
-real runners or manage the host's services. CI runs syntax checks, ShellCheck,
-and these regressions on GitHub-hosted Ubuntu.
+real runners or manage the host's services. When `systemd-analyze` is available,
+they also verify actual generated units, including paths with spaces. CI runs
+syntax checks, ShellCheck, and all 23 regressions on GitHub-hosted Ubuntu.
 
 See [CHANGELOG.md](CHANGELOG.md) and the [v0.1.0 release draft and validation
 checklist](docs/releases/v0.1.0.md). A real Raspberry Pi and end-to-end GitHub

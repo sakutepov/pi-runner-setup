@@ -208,6 +208,19 @@ class RunnerLifecycleTests(unittest.TestCase):
         unit = (self.root / "systemd" / "github-runner@demo_project.service").read_text()
         self.assertIn('ExecStart="' + str(directory) + '/runsvc.sh"', unit)
 
+    @unittest.skipUnless(shutil.which("systemd-analyze"), "systemd-analyze is unavailable")
+    def test_generated_units_pass_real_systemd_verification(self):
+        # Check the actual unit parser: a mock cannot establish whether quoting
+        # is legal for WorkingDirectory, which differs from ExecStart syntax.
+        for name, home in (("ordinary", self.home), ("spaces", self.root / "home with spaces")):
+            with self.subTest(home=name):
+                home.mkdir(exist_ok=True)
+                self.env["HOME"] = str(home)
+                self.assert_succeeded(self.run_script("install_runner.sh", "demo/" + name, "registration-token"))
+                unit = self.root / "systemd" / ("github-runner@demo_" + name + ".service")
+                result = subprocess.run(["systemd-analyze", "verify", str(unit)], cwd=self.root, env=self.env, text=True, capture_output=True, timeout=20)
+                self.assert_succeeded(result)
+
     def test_inactive_configured_runner_restarts_without_api(self):
         directory = self.add_runner(active=False)
         self.state["api_failure"] = "http"

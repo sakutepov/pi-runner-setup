@@ -23,7 +23,7 @@ SERVICE_NAME="github-runner@$NAME.service"
 SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME"
 RUNNER_USER=$(id -un)
 [[ "$RUNNER_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]*\$?$ ]] || die "Unsupported runner user name"
-[[ "$DIR" != *$'\n'* && "$DIR" != *$'\r'* ]] || die "Runner directory cannot contain a newline"
+[[ ! "$DIR" =~ [[:cntrl:]] ]] || die "Runner directory cannot contain control characters"
 [[ "$DIR" != *'$'* ]] || die "Runner directory cannot contain a dollar sign (systemd expands it in ExecStart)"
 [[ ! -L "$RUNNERS_DIR" && ! -L "$DIR" ]] || die "Runner directories must not be symbolic links"
 [[ ! -e "$RUNNERS_DIR" || ( -d "$RUNNERS_DIR" && -O "$RUNNERS_DIR" ) ]] || die "Runner storage is not owned by the current user"
@@ -114,7 +114,7 @@ if [[ ! -f "$DIR/.runner" ]]; then
   ARCHIVE_FILE=$(mktemp "$DIR/.runner-download.XXXXXX")
   DOWNLOAD_URL="https://github.com/actions/runner/releases/download/v$RUNNER_VERSION/actions-runner-linux-$ARCH-$RUNNER_VERSION.tar.gz"
   curl --fail --show-error --silent --location --retry 3 --connect-timeout 10 \
-    --max-time 300 --output "$ARCHIVE_FILE" "$DOWNLOAD_URL"
+    --max-time 900 --output "$ARCHIVE_FILE" "$DOWNLOAD_URL"
   HASH_OUTPUT=$("${HASH_COMMAND[@]}" "$ARCHIVE_FILE")
   ACTUAL_SHA256=${HASH_OUTPUT%%[[:space:]]*}
   EXPECTED_SHA256=$(printf '%s' "$RUNNER_SHA256" | tr '[:upper:]' '[:lower:]')
@@ -136,12 +136,15 @@ if [[ ! -x "$DIR/runsvc.sh" ]]; then
 fi
 
 [[ -r "$SCRIPT_DIR/github-runner.service.template" ]] || die "Missing systemd service template"
-# Quote paths for systemd syntax and escape its % specifiers.
+# ExecStart parses a quoted, C-escaped command; WorkingDirectory is a raw path.
+# Both settings expand systemd % specifiers.
 UNIT_DIR_ESCAPED=${DIR//\\/\\\\}
 UNIT_DIR_ESCAPED=${UNIT_DIR_ESCAPED//\"/\\\"}
 UNIT_DIR_ESCAPED=${UNIT_DIR_ESCAPED//%/%%}
+UNIT_WORK_DIR=${DIR//%/%%}
 UNIT_CONTENT=$(<"$SCRIPT_DIR/github-runner.service.template")
 UNIT_CONTENT=${UNIT_CONTENT//__RUNNER_DIR__/"$UNIT_DIR_ESCAPED"}
+UNIT_CONTENT=${UNIT_CONTENT//__RUNNER_WORK_DIR__/"$UNIT_WORK_DIR"}
 UNIT_CONTENT=${UNIT_CONTENT//__USER__/"$RUNNER_USER"}
 UNIT_TEMP=$(mktemp "$DIR/.systemd-unit.XXXXXX")
 printf '%s\n' "$UNIT_CONTENT" > "$UNIT_TEMP"
